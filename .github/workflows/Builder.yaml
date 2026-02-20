@@ -6,26 +6,19 @@ on:
       - master
   workflow_dispatch:
 
-env:
-  CMAKE_VERSION: 3.22.1
-  NDK_VERSION: 25.2.9519653
-
 jobs:
   delete_latest_release:
     runs-on: ubuntu-latest
-    permissions: # 显式声明权限，解决 Token 报错
+    permissions:
       contents: write
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
-
-    - name: Delete Latest Release
+    - name: Delete old release
       uses: dev-drprasad/delete-tag-and-release@v1.1
       with:
         delete_release: true
         tag_name: latest
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # 使用内置令牌即可
+        github_token: ${{ secrets.GITHUB_TOKEN }} # 修正：作为输入参数而非环境变量
+        fail_on_no_tag: false # 修正：解决标签不存在导致的报错
 
   android:
     runs-on: ubuntu-latest
@@ -34,37 +27,42 @@ jobs:
       contents: write
     steps:
     - name: Checkout
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
-        submodules: recursive # Dobby 依赖子模块
+        submodules: recursive
+
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: '17'
 
     - name: Set up NDK
-      uses: nwidger/setup-android-ndk@v1
+      uses: android-actions/setup-android@v3 # 修正：替换失效的 Action
       with:
-        ndk-version: ${{ env.NDK_VERSION }}
+        ndk-version: '25.2.9519653'
 
-    - name: Build Dobby for Android
+    - name: Build Dobby
       run: |
         mkdir -p build_android_arm64
         cd build_android_arm64
         cmake .. \
-          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake \
+          -DCMAKE_TOOLCHAIN_FILE=$ANDROID_NDK_ROOT/build/cmake/android.toolchain.cmake \
           -DANDROID_ABI=arm64-v8a \
           -DANDROID_PLATFORM=android-23 \
           -DDVM_SUPPORT=ON
         make -j$(nproc)
-        
-        # 整理产物
-        mkdir -p ../dist/android/arm64-v8a
-        cp libdobby.a ../dist/android/arm64-v8a/
-        cp ../include/dobby.h ../dist/android/
+        # 整理输出
+        mkdir -p ../dist/arm64-v8a
+        cp libdobby.a ../dist/arm64-v8a/
+        cp ../include/dobby.h ../dist/
       shell: bash
 
-    - name: Archive and Upload
+    - name: Update Release
       uses: ncipollo/release-action@v1
       with:
         token: ${{ secrets.GITHUB_TOKEN }}
         tag: latest
-        artifacts: "dist/android/arm64-v8a/libdobby.a,dist/android/dobby.h"
+        artifacts: "dist/arm64-v8a/libdobby.a,dist/dobby.h"
         allowUpdates: true
         replacesArtifacts: true
